@@ -10,17 +10,17 @@ import java.util.BitSet
  * returns the node's children.
  */
 internal fun <N> renderTreeString(
-  builder: StringBuilder,
+  appendable: Appendable,
   rootNode: N,
-  renderNode: StringBuilder.(N) -> List<N>
+  renderNode: StringBuilder.(N) -> Collection<N>
 ) {
-  renderRecursively(builder, rootNode, renderNode, depth = 0, lastChildMask = BitSet())
+  renderRecursively(appendable, rootNode, renderNode, depth = 0, lastChildMask = BitSet())
 }
 
 private fun <N> renderRecursively(
-  builder: StringBuilder,
+  appendable: Appendable,
   node: N,
-  renderNode: StringBuilder.(N) -> List<N>,
+  renderNode: StringBuilder.(N) -> Collection<N>,
   depth: Int,
   lastChildMask: BitSet
 ) {
@@ -29,9 +29,9 @@ private fun <N> renderRecursively(
   val children = nodeDescription.renderNode(node)
 
   nodeDescription.lineSequence().forEachIndexed { index, line ->
-    builder.appendLinePrefix(depth, continuePreviousLine = index > 0, lastChildMask = lastChildMask)
+    appendable.appendLinePrefix(depth, continuePreviousLine = index > 0, lastChildMask = lastChildMask)
     @Suppress("DEPRECATION")
-    (builder.appendln(line))
+    appendable.appendln(line)
   }
 
   val lastChildIndex = children.size - 1
@@ -43,7 +43,7 @@ private fun <N> renderRecursively(
     }
 
     childNode?.let {
-      renderRecursively(builder, childNode, renderNode, depth + 1, lastChildMask)
+      renderRecursively(appendable, childNode, renderNode, depth + 1, lastChildMask)
     }
   }
 
@@ -51,7 +51,7 @@ private fun <N> renderRecursively(
   lastChildMask.clear(depth)
 }
 
-private fun StringBuilder.appendLinePrefix(
+private fun Appendable.appendLinePrefix(
   depth: Int,
   continuePreviousLine: Boolean,
   lastChildMask: BitSet

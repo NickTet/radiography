@@ -1,10 +1,14 @@
 package radiography.internal
 
 import android.view.View
+import androidx.compose.runtime.Composer
+import androidx.compose.runtime.CompositionReference
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntBounds
 import androidx.ui.tooling.Group
 import androidx.ui.tooling.NodeGroup
+import androidx.ui.tooling.asTree
+import kotlin.LazyThreadSafetyMode.PUBLICATION
 
 /**
  * Information about a Compose `LayoutNode`, extracted from a [Group] tree via [Group.layoutInfos].
@@ -41,17 +45,33 @@ internal val Group.layoutInfos: Sequence<ComposeLayoutInfo> get() = computeLayou
  * to derive the "name" of the [ComposeLayoutInfo]. The other [ComposeLayoutInfo] properties come directly off
  * [NodeGroup] values.
  */
-private fun Group.computeLayoutInfos(parentName: String = ""): Sequence<ComposeLayoutInfo> {
+private fun Group.computeLayoutInfos(
+  parentName: String = ""
+): Sequence<ComposeLayoutInfo> {
   val name = parentName.ifBlank { this.name }.orEmpty()
 
+  val subComposedChildren = getCompositionReferences()
+      .flatMap { it.tryGetComposers().asSequence() }
+      .map { subcomposer ->
+        ComposeLayoutInfo(
+            name = "$name (subcomposition)",
+            bounds = box,
+            modifiers = emptyList(),
+            children = subcomposer.slotTable.asTree().layoutInfos,
+            view = null
+        )
+      }
+
   if (this !is NodeGroup) {
-    return children.asSequence()
+    return subComposedChildren + children.asSequence()
         .flatMap { it.computeLayoutInfos(name) }
+        .constrainOnce()
   }
 
-  val children = children.asSequence()
+  val children = subComposedChildren + children.asSequence()
       // This node will "consume" the name, so reset it name to empty for children.
       .flatMap { it.computeLayoutInfos() }
+      .constrainOnce()
 
   val layoutInfo = ComposeLayoutInfo(
       name = name,
@@ -61,4 +81,54 @@ private fun Group.computeLayoutInfos(parentName: String = ""): Sequence<ComposeL
       view = node as? View
   )
   return sequenceOf(layoutInfo)
+}
+
+private val COMPOSITION_REFERENCE_HOLDER_CLASS by lazy(PUBLICATION) {
+  try {
+    Class.forName("androidx.compose.runtime.Composer\$CompositionReferenceHolder")
+  } catch (e: Throwable) {
+    null
+  }
+}
+private val COMPOSITION_REFERENCE_IMPL_CLASS by lazy(PUBLICATION) {
+  try {
+    Class.forName("androidx.compose.runtime.Composer\$CompositionReferenceImpl")
+  } catch (e: Throwable) {
+    null
+  }
+}
+private val COMPOSITION_REFERENCE_HOLDER_REF_FIELD by lazy(PUBLICATION) {
+  try {
+    COMPOSITION_REFERENCE_HOLDER_CLASS?.getDeclaredField("ref")
+        ?.apply { isAccessible = true }
+  } catch (e: Throwable) {
+    null
+  }
+}
+private val COMPOSITION_REFERENCE_IMPL_COMPOSERS_FIELD by lazy(PUBLICATION) {
+  try {
+    COMPOSITION_REFERENCE_IMPL_CLASS?.getDeclaredField("composers")
+        ?.apply { isAccessible = true }
+  } catch (e: Throwable) {
+    null
+  }
+}
+
+private fun Group.getCompositionReferences(): Sequence<CompositionReference> {
+  if (COMPOSITION_REFERENCE_HOLDER_CLASS == null) return emptySequence()
+
+  return data.asSequence()
+      .filter { it != null && it::class.java == COMPOSITION_REFERENCE_HOLDER_CLASS }
+      .mapNotNull { holder -> holder.tryGetCompositionReference() }
+//      .flatMap { ref -> ref.tryGetComposers().asSequence() }
+}
+
+private fun Any?.tryGetCompositionReference() =
+  COMPOSITION_REFERENCE_HOLDER_REF_FIELD?.get(this) as? CompositionReference
+
+@Suppress("UNCHECKED_CAST")
+private fun CompositionReference.tryGetComposers(): Iterable<Composer<*>> {
+  if (COMPOSITION_REFERENCE_IMPL_CLASS?.isInstance(this) != true) return emptyList()
+  return COMPOSITION_REFERENCE_IMPL_COMPOSERS_FIELD?.get(this) as? Iterable<Composer<*>>
+      ?: emptyList()
 }

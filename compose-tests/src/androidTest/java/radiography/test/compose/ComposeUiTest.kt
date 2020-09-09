@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Stack
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumnFor
 import androidx.compose.material.Button
 import androidx.compose.material.Checkbox
 import androidx.compose.material.TextField
 import androidx.compose.runtime.SlotTable
 import androidx.compose.runtime.currentComposer
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.WithConstraints
 import androidx.compose.ui.node.Ref
 import androidx.compose.ui.platform.DensityAmbient
 import androidx.compose.ui.platform.testTag
@@ -27,11 +29,13 @@ import androidx.compose.ui.semantics.SemanticsProperties.IsPopup
 import androidx.compose.ui.semantics.SemanticsProperties.TestTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.ui.test.createComposeRule
 import androidx.ui.test.runOnIdle
 import com.google.common.truth.Truth.assertThat
 import org.junit.Rule
 import org.junit.Test
+import radiography.ExperimentalRadiographyComposeApi
 import radiography.Radiography
 import radiography.ScanScopes.composeTestTagScope
 import radiography.ViewFilters.skipComposeTestTagsFilter
@@ -39,7 +43,6 @@ import radiography.ViewStateRenderers.DefaultsIncludingPii
 import radiography.ViewStateRenderers.DefaultsNoPii
 import radiography.ViewStateRenderers.ViewRenderer
 import radiography.ViewStateRenderers.textViewRenderer
-import radiography.ExperimentalRadiographyComposeApi
 
 @OptIn(ExperimentalRadiographyComposeApi::class)
 class ComposeUiTest {
@@ -232,10 +235,7 @@ class ComposeUiTest {
   }
 
   @Test fun nestedLayouts() {
-    val slotTable = Ref<SlotTable>()
     composeRule.setContent {
-      slotTable.value = currentComposer.slotTable
-
       Stack(Modifier.testTag("root")) {
         Box()
         Column {
@@ -270,10 +270,7 @@ class ComposeUiTest {
   }
 
   @Test fun nestedViewsInsideLayouts() {
-    val slotTable = Ref<SlotTable>()
     composeRule.setContent {
-      slotTable.value = currentComposer.slotTable
-
       Box(Modifier.testTag("root")) {
         AndroidView(::TextView) {
           it.layoutParams = LayoutParams(0, 0)
@@ -290,13 +287,94 @@ class ComposeUiTest {
     @Suppress("RemoveCurlyBracesFromTemplate")
     assertThat(hierarchy).contains(
         """
-          Box:
+        ${BLANK} Box:
           ${BLANK}Box { test-tag:"root" }
-          ${BLANK}╰─AndroidView {  }
+        ${BLANK} ${BLANK}╰─AndroidView {  }
         """.trimIndent()
     )
     // But this view description should show up at some point.
     assertThat(hierarchy).contains("╰─TextView { 0×0px, text-length:0 }")
+  }
+
+  @Test fun scanningHandlesWithConstraints() {
+    val slotTable = Ref<SlotTable>()
+    composeRule.setContent {
+      slotTable.value = currentComposer.slotTable
+
+      Box(Modifier.testTag("parent")) {
+        WithConstraints(Modifier.testTag("with-constraints")) {
+          Box(Modifier.testTag("child"))
+        }
+      }
+    }
+
+    val hierarchy = runOnIdle {
+      Radiography.scan(composeTestTagScope("parent"))
+    }
+
+    assertThat(hierarchy).isEqualTo(
+        """
+        |Box:
+        |${BLANK}Box { test-tag:"parent" }
+        |${BLANK}╰─WithConstraints { test-tag:"with-constraints" }
+        |${BLANK}  ╰─Box { test-tag:"child" }
+        |
+        """.trimMargin()
+    )
+  }
+
+  @Test fun scanningHandlesDialog() {
+    val slotTable = Ref<SlotTable>()
+    composeRule.setContent {
+      slotTable.value = currentComposer.slotTable
+
+      Box(Modifier.testTag("parent")) {
+        Dialog(onDismissRequest = {}) {
+          Box(Modifier.testTag("child"))
+        }
+      }
+    }
+
+    val hierarchy = runOnIdle {
+      Radiography.scan(composeTestTagScope("parent"))
+    }
+
+    assertThat(hierarchy).isEqualTo(
+        """
+        |Box:
+        |${BLANK}Box { test-tag:"parent" }
+        |${BLANK}╰─WithConstraints { test-tag:"with-constraints" }
+        |${BLANK}  ╰─Box { test-tag:"child" }
+        |
+        """.trimMargin()
+    )
+  }
+
+  @Test fun scanningHandlesLazyLists() {
+    val slotTable = Ref<SlotTable>()
+    composeRule.setContent {
+      slotTable.value = currentComposer.slotTable
+
+      Box(Modifier.testTag("parent")) {
+        LazyColumnFor(items = listOf(1, 2), modifier = Modifier.testTag("list")) {
+          Box(Modifier.testTag("child:$it"))
+        }
+      }
+    }
+
+    val hierarchy = runOnIdle {
+      Radiography.scan(composeTestTagScope("parent"))
+    }
+
+    assertThat(hierarchy).isEqualTo(
+        """
+        |Box:
+        |${BLANK}Box { test-tag:"parent" }
+        |${BLANK}╰─WithConstraints { test-tag:"with-constraints" }
+        |${BLANK}  ╰─Box { test-tag:"child" }
+        |
+        """.trimMargin()
+    )
   }
 
   companion object {

@@ -23,14 +23,18 @@ import androidx.compose.material.MaterialTheme
 import androidx.compose.material.TextButton
 import androidx.compose.material.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Composer
+import androidx.compose.runtime.currentComposer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.onActive
 import androidx.compose.runtime.onCommit
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.node.Ref
 import androidx.compose.ui.platform.ContextAmbient
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -49,6 +53,7 @@ import radiography.ViewStateRenderers.DefaultsNoPii
 import radiography.ViewStateRenderers.ViewRenderer
 import radiography.ViewStateRenderers.androidViewStateRendererFor
 import radiography.ViewStateRenderers.textViewRenderer
+import radiography.internal.scanGroups
 
 internal const val TEXT_FIELD_TEST_TAG = "text-field"
 internal const val LIVE_HIERARCHY_TEST_TAG = "live-hierarchy"
@@ -132,6 +137,44 @@ internal const val LIVE_HIERARCHY_TEST_TAG = "live-hierarchy"
             // Don't trigger infinite recursion.
             viewFilter = skipComposeTestTagsFilter(LIVE_HIERARCHY_TEST_TAG)
         )
+      }
+
+      val composerRef = remember { Ref<Composer<*>>() }
+      composerRef.value = currentComposer
+      onActive {
+        val logAppendable = object : Appendable {
+          val builder = StringBuilder()
+
+          override fun append(text: CharSequence?): Appendable = apply {
+            builder.append(text)
+            flushCompleteLines()
+          }
+
+          override fun append(
+            text: CharSequence?,
+            start: Int,
+            end: Int
+          ): Appendable = apply {
+            builder.append(text, start, end)
+            flushCompleteLines()
+          }
+
+          override fun append(char: Char): Appendable = apply {
+            builder.append(char)
+            flushCompleteLines()
+          }
+
+          private fun flushCompleteLines() {
+            while (true) {
+              val lineEnd = builder.indexOf('\n')
+              if (lineEnd == -1) return
+              println("OMG ${builder.subSequence(0, lineEnd)}")
+              builder.delete(0, lineEnd + 1)
+            }
+          }
+        }
+
+        composerRef.value!!.scanGroups(logAppendable)
       }
     }
   }

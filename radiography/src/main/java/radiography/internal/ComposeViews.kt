@@ -4,11 +4,16 @@ import android.util.SparseArray
 import android.view.View
 import androidx.compose.runtime.Composer
 import androidx.compose.runtime.Composition
+import androidx.ui.tooling.Group
+import androidx.ui.tooling.NodeGroup
 import androidx.ui.tooling.asTree
+import radiography.ExperimentalRadiographyComposeApi
 import radiography.ScannableView
 import radiography.ScannableView.ChildRenderingError
 import radiography.ScannableView.ComposeView
-import radiography.ExperimentalRadiographyComposeApi
+import radiography.internal.GroupExplorer.GroupData
+import radiography.internal.GroupExplorer.GroupDatum
+import radiography.internal.GroupExplorer.JustGroup
 import kotlin.LazyThreadSafetyMode.PUBLICATION
 
 private val VIEW_KEYED_TAGS_FIELD = View::class.java.getDeclaredField("mKeyedTags")
@@ -114,6 +119,45 @@ private fun tryGetLayoutInfos(composeView: View): Sequence<ComposeLayoutInfo>? {
   // since then we could drop the requirement for the Tooling library to be on the classpath.
   val rootGroup = composer.slotTable.asTree()
   return rootGroup.layoutInfos
+}
+
+private sealed class GroupExplorer {
+  class JustGroup(val group: Group) : GroupExplorer()
+  class GroupData(val data: Collection<*>) : GroupExplorer()
+  class GroupDatum(val datum: Any?) : GroupExplorer()
+}
+
+public fun Composer<*>.scanGroups(appendable: Appendable) {
+  val group = slotTable.asTree()
+  val root: GroupExplorer = JustGroup(group)
+  renderTreeString(appendable, root) { g ->
+    when (g) {
+      is JustGroup -> {
+        append("${g.group.name}")
+        if (g.group is NodeGroup) {
+          append(" ${g.group.node}")
+        }
+        listOf(GroupData(g.group.data)) + g.group.children.map(::JustGroup)
+      }
+      is GroupData -> {
+        append("data:")
+        g.data.map(::GroupDatum)
+      }
+      is GroupDatum -> {
+        append(g.datum)
+        emptyList()
+      }
+    }
+  }
+
+//  infos.forEach {
+//    println("OMG ${it.childrenList}")
+//      renderTreeString(appendable, it) { info ->
+//        println("OMG $info")
+//        append(info)
+//        it.children.toList()
+//      }
+//  }
 }
 
 private fun View.getKeyedTags(): SparseArray<*> {
